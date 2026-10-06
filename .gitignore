@@ -1,0 +1,23 @@
+# Secrets — never commit real env values
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Docker
+postgres_data/
+
+# Frontend (later)
+node_modules/
+dist/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
