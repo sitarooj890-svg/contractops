@@ -1,3 +1,5 @@
 fastapi
 uvicorn[standard]
-# Day 2+: sqlalchemy, alembic, psycopg, pgvector
+sqlalchemy
+alembic
+psycopg[binary]
