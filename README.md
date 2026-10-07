@@ -38,3 +38,20 @@ See `DATABASE_URL` in `.env.example`.
 
 1. Start db + api (api auto-runs `alembic upgrade head`): `docker compose up --build -d`
 2. Run DB constraint tests inside api (no mounts needed): `docker compose exec api pytest tests/test_constraints.py -v`
+3. Run the full suite: `docker compose exec api pytest tests/ -v`
+
+## Seed (demo data)
+
+Creates `Demo Org` and three demo users (idempotent — safe to run twice):
+
+| Email | Role | Password |
+|---|---|---|
+| analyst@test.com | analyst | Test1234! |
+| approver@test.com | approver | Test1234! |
+| admin@test.com | admin | Test1234! |
+
+Command:
+
+```
+docker compose exec api python -m app.seed
+```
