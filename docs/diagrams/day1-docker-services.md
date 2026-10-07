@@ -1,16 +1,13 @@
-# Day 1 — Docker Services
+# Day 1 - Docker Services
 
-Developer workflow with `db` + `api` and `/health` check.
+Developer workflow with db + api and the /health check.
 
-```mermaid
+````mermaid
 flowchart LR
-    dev[Developer] -->|docker compose up --build| compose[Docker Compose]
-
-    compose --> db[(db<br/>pgvector/pgvector:pg16<br/>5433:5432)]
-    compose --> api[api<br/>FastAPI + Uvicorn<br/>8000:8000]
-
-    api -->|depends_on: service_healthy<br/>DATABASE_URL @db:5432| db
-
-    browser[Browser] -->|GET localhost:8000/health| api
-    api -->|{"status": "ok"}| browser
-```
+    dev["Developer"] -->|"docker compose up --build"| compose["Docker Compose"]
+    compose --> db[("db - pgvector pg16 - port 5433")]
+    compose --> api["api - FastAPI + Uvicorn - port 8000"]
+    api -->|"waits until db is healthy"| db
+    browser["Browser"] -->|"GET /health"| api
+    api -->|"status ok"| browser
+````

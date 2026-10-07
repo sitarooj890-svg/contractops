@@ -1,111 +1,106 @@
-# Day 2 — ERD (core schema)
+# Day 2 - ERD (core schema)
 
-10 tables. PK/FK shown in diagram. Named UNIQUE + CHECK listed as comments.
+10 tables. PK = primary key, FK = foreign key, UK = unique.
 
-```mermaid
+````mermaid
 erDiagram
     users {
         int id PK
-        string email "uq_users_email"
+        string email UK
         string password_hash
         string full_name
-        timestamptz created_at
+        timestamp created_at
     }
-    %% uq_users_email UNIQUE(email)
-
     organizations {
         int id PK
-        string name "uq_organizations_name"
-        timestamptz created_at
+        string name UK
+        timestamp created_at
     }
-    %% uq_organizations_name UNIQUE(name)
-
     memberships {
         int id PK
         int user_id FK
         int organization_id FK
-        string role "ck_memberships_role_valid"
-        timestamptz created_at
+        string role
+        timestamp created_at
     }
-    %% ck_memberships_role_valid CHECK(role IN analyst,approver,admin)
-    %% uq_memberships_user_organization UNIQUE(user_id, organization_id)
-
     contracts {
         int id PK
         int organization_id FK
         string title
-        string source_id "nullable, uq_contracts_organization_source_id"
+        string source_id
         int created_by FK
-        timestamptz created_at
+        timestamp created_at
     }
-    %% uq_contracts_organization_source_id UNIQUE(organization_id, source_id)
-
     parties {
         int id PK
         string name
-        timestamptz created_at
+        timestamp created_at
     }
-
     contract_parties {
-        int contract_id PK_FK
-        int party_id PK_FK
+        int contract_id PK, FK
+        int party_id PK, FK
     }
-    %% PK(contract_id, party_id)
-
     document_versions {
         int id PK
         int contract_id FK
-        int version_number "ck_document_versions_version_number_positive"
+        int version_number
         string file_name
         string status
-        timestamptz created_at
+        timestamp created_at
     }
-    %% uq_document_versions_contract_version UNIQUE(contract_id, version_number)
-    %% ck_document_versions_version_number_positive CHECK(version_number >= 1)
-
     obligations {
         int id PK
         int contract_id FK
-        int document_version_id FK_nullable
+        int document_version_id FK
         text description
-        date due_date_nullable
-        string status "ck_obligations_status_valid"
+        date due_date
+        string status
         int created_by FK
-        timestamptz created_at
-        timestamptz updated_at
+        timestamp created_at
+        timestamp updated_at
     }
-    %% ck_obligations_status_valid CHECK(status IN draft,approved,rejected)
-
     approvals {
         int id PK
         int obligation_id FK
         int approver_id FK
-        string action "ck_approvals_action_valid"
-        text comment_nullable
-        timestamptz created_at
+        string action
+        text comment
+        timestamp created_at
     }
-    %% ck_approvals_action_valid CHECK(action IN confirm,correct,reject)
-
     audit_logs {
         int id PK
-        int user_id FK_nullable
+        int user_id FK
         string action
         string entity_type
-        int entity_id_nullable
-        timestamptz created_at
+        int entity_id
+        timestamp created_at
     }
 
-    users ||--o{ memberships : "user_id"
-    organizations ||--o{ memberships : "organization_id"
-    organizations ||--o{ contracts : "organization_id"
-    users ||--o{ contracts : "created_by"
-    contracts ||--o{ contract_parties : "contract_id"
-    parties ||--o{ contract_parties : "party_id"
-    contracts ||--o{ document_versions : "contract_id"
-    contracts ||--o{ obligations : "contract_id"
-    document_versions |o--o{ obligations : "document_version_id?"
-    users ||--o{ obligations : "created_by"
-    obligations ||--o{ approvals : "obligation_id"
-    users ||--o{ approvals : "approver_id"
-    users |o--o{ audit_logs : "user_id?"
-```
+    users ||--o{ memberships : has
+    organizations ||--o{ memberships : has
+    organizations ||--o{ contracts : owns
+    users ||--o{ contracts : creates
+    contracts ||--o{ contract_parties : involves
+    parties ||--o{ contract_parties : appears_in
+    contracts ||--o{ document_versions : has
+    contracts ||--o{ obligations : has
+    document_versions |o--o{ obligations : cited_by
+    obligations ||--o{ approvals : reviewed_in
+    users ||--o{ approvals : decides
+    users ||--o{ obligations : drafts
+    users |o--o{ audit_logs : performs
+````
+
+## Constraints
+
+| Table | Constraint | Rule |
+|---|---|---|
+| users | uq_users_email | One account per email |
+| organizations | uq_organizations_name | Organization names are unique |
+| memberships | ck_memberships_role_valid | role is analyst, approver or admin |
+| memberships | uq_memberships_user_organization | One membership per user per organization |
+| contracts | uq_contracts_organization_source_id | A source ID is unique inside one organization |
+| document_versions | uq_document_versions_contract_version | Each version number appears once per contract |
+| document_versions | ck_document_versions_version_number_positive | version_number is at least 1 |
+| obligations | ck_obligations_status_valid | status is draft, approved or rejected |
+| approvals | ck_approvals_action_valid | action is confirm, correct or reject |
