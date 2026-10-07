@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from .models import Membership, Organization, User
-from .security import hash_password
+from .security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,6 +34,18 @@ class SignupOut(BaseModel):
     full_name: str
     organization_id: int
     organization_name: str
+    role: str
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class LoginOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    email: str
     role: str
 
 
@@ -78,4 +90,26 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
         organization_id=org.id,
         organization_name=org.name,
         role=payload.role,
+    )
+
+
+@router.post("/login", response_model=LoginOut)
+def login(payload: LoginIn, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+    user = db.query(User).filter_by(email=email).first()
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    membership = (
+        db.query(Membership)
+        .filter_by(user_id=user.id)
+        .order_by(Membership.id)
+        .first()
+    )
+    role = membership.role if membership is not None else ""
+    return LoginOut(
+        access_token=create_access_token(user.id),
+        token_type="bearer",
+        email=user.email,
+        role=role,
     )
