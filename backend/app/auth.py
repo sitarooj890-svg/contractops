@@ -1,15 +1,26 @@
+from datetime import datetime
 from typing import Literal
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from .models import Membership, Organization, User
-from .security import create_access_token, hash_password, verify_password
+from .security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_db():
@@ -47,6 +58,77 @@ class LoginOut(BaseModel):
     token_type: str = "bearer"
     email: str
     role: str
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    # 401 vs 403: 401 = we do not know who you are (token missing, invalid or
+    # expired). 403 = we know who you are, but your role may not do this.
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        user_id = decode_access_token(credentials.credentials)
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def current_role(db: Session, user: User) -> str:
+    membership = (
+        db.query(Membership)
+        .filter_by(user_id=user.id)
+        .order_by(Membership.id)
+        .first()
+    )
+    return membership.role if membership is not None else ""
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: 403 when the DB role is not in allowed_roles."""
+
+    def dependency(
+        user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    ) -> User:
+        # Role comes from memberships table, never from the token payload.
+        if current_role(db, user) not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Forbidden for this role")
+        return user
+
+    return dependency
+
+
+class MeOut(BaseModel):
+    id: int
+    email: str
+    role: str
+
+
+class LogoutOut(BaseModel):
+    message: str
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    created_at: datetime
 
 
 @router.post("/signup", response_model=SignupOut, status_code=201)
@@ -100,16 +182,39 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    membership = (
-        db.query(Membership)
-        .filter_by(user_id=user.id)
-        .order_by(Membership.id)
-        .first()
-    )
-    role = membership.role if membership is not None else ""
+    membership_role = current_role(db, user)
     return LoginOut(
         access_token=create_access_token(user.id),
         token_type="bearer",
         email=user.email,
-        role=role,
+        role=membership_role,
     )
+
+
+@router.get("/me", response_model=MeOut)
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return MeOut(id=user.id, email=user.email, role=current_role(db, user))
+
+
+@router.post("/logout", response_model=LogoutOut)
+def logout():
+    # JWT is stateless: the server cannot revoke it. The client must discard it.
+    return LogoutOut(
+        message="Token received. Discard it on the client and stop sending it."
+    )
+
+
+@admin_router.get("/users", response_model=list[AdminUserOut])
+def admin_users(
+    _: User = Depends(require_role("admin")), db: Session = Depends(get_db)
+):
+    users = db.query(User).order_by(User.id).all()
+    return [
+        AdminUserOut(
+            id=u.id,
+            email=u.email,
+            full_name=u.full_name,
+            created_at=u.created_at,
+        )
+        for u in users
+    ]
