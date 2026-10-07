@@ -33,3 +33,8 @@ See `DATABASE_URL` in `.env.example`.
 
 - Small steps, one file explained at a time.
 - Never commit secrets: `.env` is gitignored, only `.env.example` is committed.
+
+## Tests
+
+1. Start db + api (api auto-runs `alembic upgrade head`): `docker compose up --build -d`
+2. Run DB constraint tests inside api (no mounts needed): `docker compose exec api pytest tests/test_constraints.py -v`
