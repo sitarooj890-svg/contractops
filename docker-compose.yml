@@ -26,6 +26,7 @@ services:
     environment:
       # Must use service name "db", not localhost, inside Docker network
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://contractops:change-me-locally@db:5432/contractops}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in .env}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
