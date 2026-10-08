@@ -117,6 +117,7 @@ def require_role(*allowed_roles: str):
 class MeOut(BaseModel):
     id: int
     email: str
+    full_name: str
     role: str
 
 
@@ -193,7 +194,12 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=MeOut)
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return MeOut(id=user.id, email=user.email, role=current_role(db, user))
+    return MeOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=current_role(db, user),
+    )
 
 
 @router.post("/logout", response_model=LogoutOut)
