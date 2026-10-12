@@ -29,6 +29,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in .env}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Uploaded contract documents persist on the host at backend/storage.
+      - ./backend/storage:/code/storage
     depends_on:
       db:
         condition: service_healthy

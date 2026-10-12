@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react'
 import {
   addObligation,
   createContract,
+  getContract,
   listContracts,
+  uploadContractFile,
 } from '../contractsApi.js'
 
 function formatDate(value) {
@@ -31,10 +33,16 @@ export default function AnalystPortal() {
   const [obligationSuccess, setObligationSuccess] = useState(null)
   const [savingObligation, setSavingObligation] = useState(false)
 
+  // File uploads (per contract id)
+  const [uploadingId, setUploadingId] = useState(null)
+  const [uploadNotices, setUploadNotices] = useState({})
+
   async function refresh() {
     try {
-      const data = await listContracts()
-      setContracts(data)
+      const list = await listContracts()
+      // The list endpoint only has counts; details carry the file versions.
+      const details = await Promise.all(list.map((c) => getContract(c.id)))
+      setContracts(details)
       setListError(null)
     } catch (err) {
       setListError(err.message)
@@ -102,6 +110,40 @@ export default function AnalystPortal() {
       setObligationError(err.message)
     } finally {
       setSavingObligation(false)
+    }
+  }
+
+  async function onUpload(event, contractId) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const file = form.elements.file.files[0]
+    setUploadNotices((prev) => ({ ...prev, [contractId]: null }))
+    if (!file) {
+      setUploadNotices((prev) => ({
+        ...prev,
+        [contractId]: { type: 'error', text: 'Choose a file to upload.' },
+      }))
+      return
+    }
+    setUploadingId(contractId)
+    try {
+      const version = await uploadContractFile(contractId, file)
+      setUploadNotices((prev) => ({
+        ...prev,
+        [contractId]: {
+          type: 'success',
+          text: `Uploaded ${version.file_name} as v${version.version_number}.`,
+        },
+      }))
+      form.reset()
+      await refresh()
+    } catch (err) {
+      setUploadNotices((prev) => ({
+        ...prev,
+        [contractId]: { type: 'error', text: err.message },
+      }))
+    } finally {
+      setUploadingId(null)
     }
   }
 
@@ -215,25 +257,69 @@ export default function AnalystPortal() {
                 <tr>
                   <th>ID</th>
                   <th>Title</th>
-                  <th>Source ID</th>
                   <th>Parties</th>
                   <th>Obligations</th>
+                  <th>Document</th>
                   <th>Created</th>
                 </tr>
               </thead>
               <tbody>
-                {contracts.map((contract) => (
-                  <tr key={contract.id}>
-                    <td>{contract.id}</td>
-                    <td>
-                      <strong>{contract.title}</strong>
-                    </td>
-                    <td>{contract.source_id || '—'}</td>
-                    <td>{contract.parties.map((p) => p.name).join(', ') || '—'}</td>
-                    <td>{contract.obligation_count}</td>
-                    <td>{formatDate(contract.created_at)}</td>
-                  </tr>
-                ))}
+                {contracts.map((contract) => {
+                  const notice = uploadNotices[contract.id]
+                  return (
+                    <tr key={contract.id}>
+                      <td>{contract.id}</td>
+                      <td>
+                        <strong>{contract.title}</strong>
+                        {contract.source_id && (
+                          <div className="muted">{contract.source_id}</div>
+                        )}
+                      </td>
+                      <td>
+                        {contract.parties.map((p) => p.name).join(', ') || '—'}
+                      </td>
+                      <td>{contract.obligation_count}</td>
+                      <td className="doc-cell">
+                        <form
+                          className="upload-form"
+                          onSubmit={(event) => onUpload(event, contract.id)}
+                        >
+                          <input
+                            type="file"
+                            name="file"
+                            accept=".pdf,.doc,.docx"
+                            required
+                            disabled={uploadingId === contract.id}
+                          />
+                          <button
+                            className="btn btn-secondary btn-small"
+                            type="submit"
+                            disabled={uploadingId === contract.id}
+                          >
+                            {uploadingId === contract.id
+                              ? 'Uploading…'
+                              : 'Upload'}
+                          </button>
+                        </form>
+                        {notice && (
+                          <p className={notice.type}>{notice.text}</p>
+                        )}
+                        {contract.document_versions.length === 0 ? (
+                          <p className="muted">No versions yet</p>
+                        ) : (
+                          <ul className="version-list">
+                            {contract.document_versions.map((version) => (
+                              <li key={version.id}>
+                                v{version.version_number} — {version.file_name}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                      <td>{formatDate(contract.created_at)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

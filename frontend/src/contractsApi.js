@@ -30,3 +30,10 @@ export function addObligation(contractId, payload) {
     body: payload,
   })
 }
+
+// Multipart upload of a PDF/Word file; returns the new DocumentVersion row.
+export function uploadContractFile(contractId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  return api(`/contracts/${contractId}/upload`, { method: 'POST', body: form })
+}

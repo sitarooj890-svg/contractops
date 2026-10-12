@@ -527,3 +527,42 @@ button.btn:disabled {
 .table-scroll {
   overflow-x: auto;
 }
+
+/* ---- File uploads and versions ---- */
+
+.upload-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upload-form input[type='file'] {
+  max-width: 190px;
+  font-size: 0.85rem;
+}
+
+.btn-small {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.version-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.version-list li {
+  margin: 2px 0;
+}
+
+.doc-cell {
+  min-width: 250px;
+}
+
+.doc-cell .error,
+.doc-cell .success {
+  margin-top: 8px;
+}

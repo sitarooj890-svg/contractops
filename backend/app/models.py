@@ -170,6 +170,7 @@ class DocumentVersion(Base):
     )
     version_number = Column(Integer, nullable=False)
     file_name = Column(String(500), nullable=False)
+    file_path = Column(String(1000), nullable=False)
     status = Column(String(20), nullable=False, server_default="uploaded")
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

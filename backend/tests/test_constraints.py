@@ -138,14 +138,20 @@ def test_duplicate_document_version_fails(db):
     org = _make_org(db)
     contract = _make_contract(db, org, user)
     v1 = models.DocumentVersion(
-        contract_id=contract.id, version_number=1, file_name="v1.pdf"
+        contract_id=contract.id,
+        version_number=1,
+        file_name="v1.pdf",
+        file_path="storage/v1.pdf",
     )
     db.add(v1)
     db.commit()
     try:
         db.add(
             models.DocumentVersion(
-                contract_id=contract.id, version_number=1, file_name="dup.pdf"
+                contract_id=contract.id,
+                version_number=1,
+                file_name="dup.pdf",
+                file_path="storage/dup.pdf",
             )
         )
         with pytest.raises(IntegrityError) as exc_info:

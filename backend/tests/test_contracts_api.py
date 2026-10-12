@@ -1,10 +1,12 @@
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app import models
 from app.database import SessionLocal
 from app.main import app
+from app.routers.contracts import STORAGE_DIR
 from app.security import hash_password
 
 client = TestClient(app)
@@ -64,6 +66,18 @@ def _login(email: str) -> str:
     return resp.json()["access_token"]
 
 
+def _unlink_version_file(path: str | None) -> None:
+    """Remove an uploaded test file, but only inside the storage directory."""
+    if not path:
+        return
+    try:
+        target = Path(path).resolve()
+        if STORAGE_DIR.resolve() in target.parents and target.is_file():
+            target.unlink()
+    except OSError:
+        pass
+
+
 def _cleanup_org(
     org_name: str, emails: list[str], parties: list[str] | None = None
 ) -> None:
@@ -76,6 +90,16 @@ def _cleanup_org(
             )
             for contract in contracts:
                 db.query(models.Obligation).filter_by(
+                    contract_id=contract.id
+                ).delete(synchronize_session=False)
+                versions = (
+                    db.query(models.DocumentVersion)
+                    .filter_by(contract_id=contract.id)
+                    .all()
+                )
+                for version in versions:
+                    _unlink_version_file(version.file_path)
+                db.query(models.DocumentVersion).filter_by(
                     contract_id=contract.id
                 ).delete(synchronize_session=False)
                 db.query(models.ContractParty).filter_by(
@@ -468,3 +492,140 @@ def test_approver_cannot_add_party():
         assert resp.status_code == 403
     finally:
         _cleanup_org(org, [analyst, approver])
+
+
+# ---- Document uploads ----
+
+
+def _upload(token: str, contract_id: int, filename: str, content: bytes, ctype: str):
+    return client.post(
+        f"/contracts/{contract_id}/upload",
+        headers=_headers(token),
+        files={"file": (filename, content, ctype)},
+    )
+
+
+def test_analyst_uploads_file_and_versions_increment():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        token = _login(email)
+        contract = _create_contract(token)
+
+        resp = _upload(
+            token, contract["id"], "agreement.pdf", b"%PDF-1.4 fake", "application/pdf"
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["version_number"] == 1
+        assert body["file_name"] == "agreement.pdf"
+        assert body["status"] == "uploaded"
+        assert "storage" in body["file_path"]
+        assert Path(body["file_path"]).is_file(), "file must exist on disk"
+
+        resp = _upload(
+            token,
+            contract["id"],
+            "amendment.docx",
+            b"PK fake zip",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["version_number"] == 2
+
+        detail = client.get(f"/contracts/{contract['id']}", headers=_headers(token))
+        assert detail.status_code == 200
+        versions = detail.json()["document_versions"]
+        assert [v["version_number"] for v in versions] == [1, 2]
+        assert [v["file_name"] for v in versions] == ["agreement.pdf", "amendment.docx"]
+    finally:
+        _cleanup_org(org, [email])
+
+
+def test_upload_rejects_unsupported_file_type():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        token = _login(email)
+        contract = _create_contract(token)
+        resp = _upload(token, contract["id"], "notes.txt", b"plain text", "text/plain")
+        assert resp.status_code == 400
+        assert "Unsupported file type" in resp.json()["detail"]
+    finally:
+        _cleanup_org(org, [email])
+
+
+def test_upload_missing_file_400():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        token = _login(email)
+        contract = _create_contract(token)
+        resp = client.post(
+            f"/contracts/{contract['id']}/upload", headers=_headers(token)
+        )
+        assert resp.status_code == 400
+        assert "No file provided" in resp.json()["detail"]
+    finally:
+        _cleanup_org(org, [email])
+
+
+def test_upload_rejects_empty_file():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        token = _login(email)
+        contract = _create_contract(token)
+        resp = _upload(token, contract["id"], "empty.pdf", b"", "application/pdf")
+        assert resp.status_code == 400
+        assert "empty" in resp.json()["detail"].lower()
+    finally:
+        _cleanup_org(org, [email])
+
+
+def test_approver_cannot_upload():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    approver = f"{_uid('approver')}@example.com"
+    _signup(analyst, org, "analyst")
+    _signup(approver, org, "approver")
+    try:
+        contract = _create_contract(_login(analyst))
+        resp = _upload(
+            _login(approver), contract["id"], "doc.pdf", b"%PDF", "application/pdf"
+        )
+        assert resp.status_code == 403
+    finally:
+        _cleanup_org(org, [analyst, approver])
+
+
+def test_upload_unknown_contract_404():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        token = _login(email)
+        resp = _upload(token, 999999999, "doc.pdf", b"%PDF", "application/pdf")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Contract not found"
+    finally:
+        _cleanup_org(org, [email])
+
+
+def test_upload_requires_authentication():
+    org = _uid("org")
+    email = f"{_uid('analyst')}@example.com"
+    _signup(email, org, "analyst")
+    try:
+        contract = _create_contract(_login(email))
+        resp = client.post(
+            f"/contracts/{contract['id']}/upload",
+            files={"file": ("doc.pdf", b"%PDF", "application/pdf")},
+        )
+        assert resp.status_code == 401
+    finally:
+        _cleanup_org(org, [email])

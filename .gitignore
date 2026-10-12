@@ -13,6 +13,9 @@ venv/
 # Docker
 postgres_data/
 
+# Uploaded contract files
+backend/storage/
+
 # Frontend (later)
 node_modules/
 dist/

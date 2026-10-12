@@ -1,19 +1,38 @@
 # Contract CRUD with role-based access control.
 # Reads: any role (analyst, approver, admin). Writes: analyst only.
+import os
+import uuid
 from datetime import date, datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth import get_db, require_role
-from ..models import Contract, ContractParty, Membership, Obligation, Party, User
+from ..models import (
+    Contract,
+    ContractParty,
+    DocumentVersion,
+    Membership,
+    Obligation,
+    Party,
+    User,
+)
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
 READ_ROLES = ("analyst", "approver", "admin")
 WRITE_ROLES = ("analyst",)
+
+# Uploaded files land in backend/storage/ on the host (bind-mounted at
+# /code/storage in the container); override with STORAGE_DIR if needed.
+_DEFAULT_STORAGE = Path(__file__).resolve().parents[2] / "storage"
+STORAGE_DIR = Path(os.environ.get("STORAGE_DIR") or _DEFAULT_STORAGE)
+
+ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".doc", ".docx"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 # ---- Input schemas (validation errors come back as FastAPI 422 detail) ----
@@ -98,6 +117,16 @@ class ObligationOut(BaseModel):
     created_at: datetime
 
 
+class DocumentVersionOut(BaseModel):
+    id: int
+    contract_id: int
+    version_number: int
+    file_name: str
+    file_path: str
+    status: str
+    created_at: datetime
+
+
 class ContractListOut(BaseModel):
     id: int
     title: str
@@ -109,6 +138,7 @@ class ContractListOut(BaseModel):
 
 class ContractDetailOut(ContractListOut):
     obligations: list[ObligationOut]
+    document_versions: list[DocumentVersionOut]
 
 
 # ---- Helpers ----
@@ -168,11 +198,29 @@ def _parties_of(db: Session, contract_id: int) -> list[PartyOut]:
     return [_party_out(link.party) for link in links]
 
 
+def _document_version_out(version: DocumentVersion) -> DocumentVersionOut:
+    return DocumentVersionOut(
+        id=version.id,
+        contract_id=version.contract_id,
+        version_number=version.version_number,
+        file_name=version.file_name,
+        file_path=version.file_path,
+        status=version.status,
+        created_at=version.created_at,
+    )
+
+
 def _detail(db: Session, contract: Contract) -> ContractDetailOut:
     obligations = (
         db.query(Obligation)
         .filter_by(contract_id=contract.id)
         .order_by(Obligation.id)
+        .all()
+    )
+    versions = (
+        db.query(DocumentVersion)
+        .filter_by(contract_id=contract.id)
+        .order_by(DocumentVersion.version_number)
         .all()
     )
     return ContractDetailOut(
@@ -183,6 +231,7 @@ def _detail(db: Session, contract: Contract) -> ContractDetailOut:
         parties=_parties_of(db, contract.id),
         obligation_count=len(obligations),
         obligations=[_obligation_out(item) for item in obligations],
+        document_versions=[_document_version_out(v) for v in versions],
     )
 
 
@@ -345,3 +394,73 @@ def add_obligation(
     db.commit()
     db.refresh(obligation)
     return _obligation_out(obligation)
+
+
+@router.post("/{contract_id}/upload", response_model=DocumentVersionOut, status_code=201)
+async def upload_contract_document(
+    contract_id: int,
+    file: UploadFile | None = File(default=None),
+    user: User = Depends(require_role(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    contract = _find_contract(db, user, contract_id)
+
+    if file is None or not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="No file provided. Attach a PDF or Word document (.pdf, .doc, .docx).",
+        )
+
+    # Use only the basename: a client can send "path/to/evil.pdf".
+    original_name = Path(file.filename).name.strip()[:500]
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Allowed types: .pdf, .doc, .docx",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413, detail="File too large. Maximum size is 10 MB"
+        )
+
+    last = (
+        db.query(DocumentVersion)
+        .filter_by(contract_id=contract.id)
+        .order_by(DocumentVersion.version_number.desc())
+        .first()
+    )
+    version_number = (last.version_number if last else 0) + 1
+
+    # Storage name is generated server-side: no client path can escape.
+    stored_name = (
+        f"contract_{contract.id}_v{version_number}_{uuid.uuid4().hex[:8]}{extension}"
+    )
+    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = STORAGE_DIR / stored_name
+    file_path.write_bytes(content)
+
+    version = DocumentVersion(
+        contract_id=contract.id,
+        version_number=version_number,
+        file_name=original_name,
+        file_path=str(file_path),
+        status="uploaded",
+    )
+    db.add(version)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two uploads raced for the same version number: drop our copy.
+        file_path.unlink(missing_ok=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Version conflict while saving the file. Please retry the upload.",
+        )
+    db.refresh(version)
+    return _document_version_out(version)
