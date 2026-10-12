@@ -275,6 +275,13 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+input:disabled,
+select:disabled {
+  background: var(--bg);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 /* ---- Buttons ---- */
 
 .btn {
@@ -437,10 +444,27 @@ button.btn:disabled {
   color: var(--error-text);
 }
 
+/* Obligation status badges */
+
+.badge-draft {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.badge-approved {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.badge-rejected {
+  background: #fef2f2;
+  color: var(--error-text);
+}
+
 /* ---- Portal pages ---- */
 
 .page-wide {
-  max-width: 760px;
+  max-width: 960px;
 }
 
 .card-grid {
@@ -465,6 +489,10 @@ button.btn:disabled {
 
 .card p {
   margin: 0;
+}
+
+.portal-section {
+  margin-top: 20px;
 }
 
 /* ---- Admin user table ---- */
@@ -493,4 +521,9 @@ button.btn:disabled {
 
 .table tr:last-child td {
   border-bottom: none;
+}
+
+/* Wide tables scroll horizontally on narrow screens. */
+.table-scroll {
+  overflow-x: auto;
 }

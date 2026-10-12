@@ -113,6 +113,7 @@ class Contract(Base):
     organization = relationship("Organization")
     creator = relationship("User")
     contract_parties = relationship("ContractParty", back_populates="contract")
+    obligations = relationship("Obligation", back_populates="contract")
 
 
 class Party(Base):
@@ -218,7 +219,7 @@ class Obligation(Base):
         nullable=False,
     )
 
-    contract = relationship("Contract")
+    contract = relationship("Contract", back_populates="obligations")
     document_version = relationship("DocumentVersion")
     creator = relationship("User")
 
