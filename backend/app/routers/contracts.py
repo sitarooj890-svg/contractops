@@ -1,9 +1,11 @@
 # Contract CRUD with role-based access control.
 # Reads: any role (analyst, approver, admin). Writes: analyst only.
+# Obligation review (approve/reject): approver and admin.
 import os
 import uuid
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
@@ -23,8 +25,12 @@ from ..models import (
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
+# Separate prefix so reviews live at POST /obligations/{id}/status.
+approvals_router = APIRouter(prefix="/obligations", tags=["approvals"])
+
 READ_ROLES = ("analyst", "approver", "admin")
 WRITE_ROLES = ("analyst",)
+REVIEW_ROLES = ("approver", "admin")
 
 # Uploaded files land in backend/storage/ on the host (bind-mounted at
 # /code/storage in the container); override with STORAGE_DIR if needed.
@@ -61,6 +67,11 @@ class ObligationIn(BaseModel):
         if not value:
             raise ValueError("description must not be empty")
         return value
+
+
+class ObligationStatusIn(BaseModel):
+    # Reviewers may only decide between these two outcomes (422 otherwise).
+    status: Literal["approved", "rejected"]
 
 
 class ContractCreateIn(BaseModel):
@@ -168,6 +179,23 @@ def _find_contract(db: Session, user: User, contract_id: int) -> Contract:
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
     return contract
+
+
+def _find_obligation(db: Session, user: User, obligation_id: int) -> Obligation:
+    # Cross-organization access reports 404, same as contracts.
+    membership = _membership(db, user)
+    obligation = (
+        db.query(Obligation)
+        .join(Contract, Contract.id == Obligation.contract_id)
+        .filter(
+            Obligation.id == obligation_id,
+            Contract.organization_id == membership.organization_id,
+        )
+        .first()
+    )
+    if obligation is None:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+    return obligation
 
 
 def _party_out(party: Party) -> PartyOut:
@@ -464,3 +492,28 @@ async def upload_contract_document(
         )
     db.refresh(version)
     return _document_version_out(version)
+
+
+@approvals_router.post("/{obligation_id}/status", response_model=ObligationOut)
+def set_obligation_status(
+    obligation_id: int,
+    payload: ObligationStatusIn,
+    user: User = Depends(require_role(*REVIEW_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Approver/admin decision: draft -> approved or draft -> rejected."""
+    obligation = _find_obligation(db, user, obligation_id)
+
+    if obligation.status != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This obligation is already {obligation.status} "
+                "and cannot be reviewed again"
+            ),
+        )
+
+    obligation.status = payload.status
+    db.commit()
+    db.refresh(obligation)
+    return _obligation_out(obligation)

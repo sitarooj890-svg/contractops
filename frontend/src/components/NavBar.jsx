@@ -21,8 +21,10 @@ export default function NavBar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
-  const links = LINKS_BY_ROLE[user?.role] ?? [
-    { to: '/dashboard', label: 'Dashboard' },
+  const links = [
+    ...(LINKS_BY_ROLE[user?.role] ?? [{ to: '/dashboard', label: 'Dashboard' }]),
+    // Every role can open their own account page.
+    { to: '/profile', label: 'Profile' },
   ]
 
   function onLogout() {

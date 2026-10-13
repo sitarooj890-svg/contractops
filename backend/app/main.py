@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import admin_router, router as auth_router
-from .routers.contracts import router as contracts_router
+from .routers.contracts import approvals_router, router as contracts_router
 
 app = FastAPI(title="ContractOps API")
 
@@ -18,6 +18,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(contracts_router)
+app.include_router(approvals_router)
 
 
 @app.get("/health")

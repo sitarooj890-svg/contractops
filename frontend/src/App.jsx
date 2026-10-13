@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage.jsx'
 import ForbiddenPage from './pages/ForbiddenPage.jsx'
 import LandingPage from './pages/LandingPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import ProfilePage from './pages/ProfilePage.jsx'
 import SignupPage from './pages/SignupPage.jsx'
 
 // Auth gate + nav bar for every logged-in page.
@@ -53,6 +54,16 @@ export default function App() {
           element={
             <Protected>
               <DashboardPage />
+            </Protected>
+          }
+        />
+
+        {/* Any authenticated role may view their own account. */}
+        <Route
+          path="/profile"
+          element={
+            <Protected>
+              <ProfilePage />
             </Protected>
           }
         />

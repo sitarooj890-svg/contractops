@@ -119,6 +119,9 @@ class MeOut(BaseModel):
     email: str
     full_name: str
     role: str
+    # Organization membership (null only if the user has no membership row).
+    organization_id: int | None = None
+    organization_name: str | None = None
 
 
 class LogoutOut(BaseModel):
@@ -194,11 +197,28 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=MeOut)
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Role and organization both come from the memberships table.
+    membership = (
+        db.query(Membership)
+        .filter_by(user_id=user.id)
+        .order_by(Membership.id)
+        .first()
+    )
+    if membership is None:
+        return MeOut(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role="",
+        )
+    organization = db.get(Organization, membership.organization_id)
     return MeOut(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
-        role=current_role(db, user),
+        role=membership.role,
+        organization_id=membership.organization_id,
+        organization_name=organization.name if organization else None,
     )
 
 

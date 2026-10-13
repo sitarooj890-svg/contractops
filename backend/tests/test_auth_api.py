@@ -83,7 +83,7 @@ def _make_admin() -> tuple[str, str, str]:
     return email, password, org_name
 
 
-def test_me_returns_user_with_role():
+def test_me_returns_user_role_and_organization():
     email = f"{_uid('me')}@example.com"
     org_name = _uid("org")
     _signup(email, "secret123", org_name, "approver")
@@ -94,6 +94,8 @@ def test_me_returns_user_with_role():
         body = resp.json()
         assert body["email"] == email
         assert body["role"] == "approver"
+        assert body["organization_name"] == org_name
+        assert isinstance(body["organization_id"], int)
         assert "id" in body
     finally:
         _cleanup(email, org_name)

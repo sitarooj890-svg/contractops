@@ -37,3 +37,11 @@ export function uploadContractFile(contractId, file) {
   form.append('file', file)
   return api(`/contracts/${contractId}/upload`, { method: 'POST', body: form })
 }
+
+// Approver/admin decision on a draft obligation: 'approved' or 'rejected'.
+export function updateObligationStatus(obligationId, status) {
+  return api(`/obligations/${obligationId}/status`, {
+    method: 'POST',
+    body: { status },
+  })
+}

@@ -320,6 +320,15 @@ button.btn:disabled {
   cursor: not-allowed;
 }
 
+.btn-danger {
+  background: var(--error-text);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: #991b1b;
+}
+
 /* ---- Messages ---- */
 
 .error,
@@ -418,6 +427,14 @@ button.btn:disabled {
 
 .detail-list dd {
   margin: 0;
+}
+
+/* Profile page: refresh button + status notice. */
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
 }
 
 .badge {
@@ -565,4 +582,30 @@ button.btn:disabled {
 .doc-cell .error,
 .doc-cell .success {
   margin-top: 8px;
+}
+
+/* Approve/Reject actions in the approver review queue. */
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+}
+
+.queue-actions .error,
+.queue-actions .success {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+/* Upcoming deadlines highlighting. */
+.deadline-overdue {
+  color: var(--error-text);
+  font-weight: 700;
+}
+
+.deadline-soon {
+  color: var(--accent-dark);
+  font-weight: 600;
 }

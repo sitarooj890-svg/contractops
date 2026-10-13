@@ -629,3 +629,186 @@ def test_upload_requires_authentication():
         assert resp.status_code == 401
     finally:
         _cleanup_org(org, [email])
+
+
+# ---- Approval actions ----
+
+
+def _review(token: str, obligation_id: int, status: str):
+    return client.post(
+        f"/obligations/{obligation_id}/status",
+        headers=_headers(token),
+        json={"status": status},
+    )
+
+
+def test_approver_approves_draft_obligation():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    approver = f"{_uid('approver')}@example.com"
+    _signup(analyst, org, "analyst")
+    _signup(approver, org, "approver")
+    try:
+        analyst_token = _login(analyst)
+        contract = _create_contract(
+            analyst_token,
+            obligations=[{"description": "Report renewal date"}],
+        )
+        obligation_id = contract["obligations"][0]["id"]
+        assert contract["obligations"][0]["status"] == "draft"
+
+        resp = _review(_login(approver), obligation_id, "approved")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["id"] == obligation_id
+        assert body["status"] == "approved"
+
+        # The change is persisted: the contract detail shows it.
+        detail = client.get(
+            f"/contracts/{contract['id']}", headers=_headers(analyst_token)
+        )
+        assert detail.status_code == 200
+        assert detail.json()["obligations"][0]["status"] == "approved"
+    finally:
+        _cleanup_org(org, [analyst, approver])
+
+
+def test_approver_rejects_draft_obligation():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    approver = f"{_uid('approver')}@example.com"
+    _signup(analyst, org, "analyst")
+    _signup(approver, org, "approver")
+    try:
+        contract = _create_contract(
+            _login(analyst),
+            obligations=[{"description": "Ambiguous deliverable"}],
+        )
+        obligation_id = contract["obligations"][0]["id"]
+
+        resp = _review(_login(approver), obligation_id, "rejected")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "rejected"
+    finally:
+        _cleanup_org(org, [analyst, approver])
+
+
+def test_admin_can_review_obligation():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    admin = f"{_uid('admin')}@example.com"
+    _signup(analyst, org, "analyst")
+    _make_admin(admin, org)
+    try:
+        contract = _create_contract(
+            _login(analyst), obligations=[{"description": "Check insurance"}]
+        )
+        obligation_id = contract["obligations"][0]["id"]
+
+        resp = _review(_login(admin), obligation_id, "approved")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "approved"
+    finally:
+        _cleanup_org(org, [analyst, admin])
+
+
+def test_analyst_cannot_review_obligation():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    _signup(analyst, org, "analyst")
+    try:
+        contract = _create_contract(
+            _login(analyst), obligations=[{"description": "Self-approve? No."}]
+        )
+        resp = _review(_login(analyst), contract["obligations"][0]["id"], "approved")
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Forbidden for this role"
+    finally:
+        _cleanup_org(org, [analyst])
+
+
+def test_review_requires_authentication():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    _signup(analyst, org, "analyst")
+    try:
+        contract = _create_contract(
+            _login(analyst), obligations=[{"description": "Anonymous decision"}]
+        )
+        resp = client.post(
+            f"/obligations/{contract['obligations'][0]['id']}/status",
+            json={"status": "approved"},
+        )
+        assert resp.status_code == 401
+    finally:
+        _cleanup_org(org, [analyst])
+
+
+def test_review_unknown_obligation_404():
+    org = _uid("org")
+    approver = f"{_uid('approver')}@example.com"
+    _signup(approver, org, "approver")
+    try:
+        resp = _review(_login(approver), 999999999, "approved")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Obligation not found"
+    finally:
+        _cleanup_org(org, [approver])
+
+
+def test_review_invalid_status_value_422():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    approver = f"{_uid('approver')}@example.com"
+    _signup(analyst, org, "analyst")
+    _signup(approver, org, "approver")
+    try:
+        contract = _create_contract(
+            _login(analyst), obligations=[{"description": "Bad status input"}]
+        )
+        resp = _review(_login(approver), contract["obligations"][0]["id"], "pending")
+        assert resp.status_code == 422
+    finally:
+        _cleanup_org(org, [analyst, approver])
+
+
+def test_review_twice_conflict_409():
+    org = _uid("org")
+    analyst = f"{_uid('analyst')}@example.com"
+    approver = f"{_uid('approver')}@example.com"
+    _signup(analyst, org, "analyst")
+    _signup(approver, org, "approver")
+    try:
+        contract = _create_contract(
+            _login(analyst), obligations=[{"description": "Already decided"}]
+        )
+        obligation_id = contract["obligations"][0]["id"]
+        token = _login(approver)
+
+        assert _review(token, obligation_id, "approved").status_code == 200
+        resp = _review(token, obligation_id, "rejected")
+        assert resp.status_code == 409
+        assert "already approved" in resp.json()["detail"]
+    finally:
+        _cleanup_org(org, [analyst, approver])
+
+
+def test_review_cross_org_obligation_404():
+    org_a = _uid("org-a")
+    org_b = _uid("org-b")
+    analyst_b = f"{_uid('analyst-b')}@example.com"
+    approver_a = f"{_uid('approver-a')}@example.com"
+    _signup(analyst_b, org_b, "analyst")
+    _signup(approver_a, org_a, "approver")
+    try:
+        contract_b = _create_contract(
+            _login(analyst_b), obligations=[{"description": "Other org only"}]
+        )
+        resp = _review(
+            _login(approver_a), contract_b["obligations"][0]["id"], "approved"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Obligation not found"
+    finally:
+        _cleanup_org(org_a, [approver_a])
+        _cleanup_org(org_b, [analyst_b])
